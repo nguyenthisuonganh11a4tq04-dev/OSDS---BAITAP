@@ -3,7 +3,7 @@ from bs4 import BeautifulSoup
 import pandas as pd
 from datetime import datetime
 import time
-
+#Do wikipedia chặn bot nên phải 
 BASE = "https://en.wikipedia.org"
 LIST_URL = BASE + "/wiki/List_of_universities_in_Vietnam"
 
@@ -12,7 +12,7 @@ headers = {
                   "AppleWebKit/537.36 (KHTML, like Gecko) "
                   "Chrome/142.0.0.0 Safari/537.36"
 }
-
+#chuyển hóa ngày
 def parse_date(text):
     """Chuẩn hóa ngày thành yyyy-mm-dd nếu có thể."""
     for fmt in ("%Y-%m-%d", "%Y"):
@@ -30,9 +30,9 @@ resp = requests.get(LIST_URL, headers=headers)
 resp.raise_for_status()
 soup = BeautifulSoup(resp.content, "html.parser")
 
-all_tables = soup.find_all("table", {"class": "wikitable"})
+all_tables = soup.find_all("table", {"class": "wikitable"}) #Wikipedia có nhiều bảng trường học, mỗi bảng là một <table class="wikitable">
 links = set()
-for table in all_tables:
+for table in all_tables: #tìm tất cả các bảng rồi gom link 
     rows = table.find_all("tr")
     for row in rows[1:]:
         cols = row.find_all("td")
@@ -56,10 +56,10 @@ for idx, link in enumerate(links):
     r = requests.get(link, headers=headers)
     r.raise_for_status()
     s = BeautifulSoup(r.content, "html.parser")
-    name = s.find("h1").text.strip() if s.find("h1") else ""
+    name = s.find("h1").text.strip() if s.find("h1") else "" #lấy tên trường (H1)
     
     info = {}
-    infobox = s.find("table", {"class": "infobox"})
+    infobox = s.find("table", {"class": "infobox"}) #tìm bảng infobox và đọc tất cả dòng
     if infobox:
         for tr in infobox.find_all("tr"):
             th = tr.find("th")
@@ -72,7 +72,7 @@ for idx, link in enumerate(links):
                 if a_tag and a_tag['href'].startswith("http"):
                     val = a_tag['href']
                 info[key] = val
-    
+    #chuẩn hóa thông tin
     established = parse_date(info.get("Established", ""))
     school_type = info.get("Type", "")
     leader = info.get("Rector", "") or info.get("President", "")
