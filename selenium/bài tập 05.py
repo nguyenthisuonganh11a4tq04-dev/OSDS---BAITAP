@@ -1,84 +1,60 @@
+from pygments.formatters.html import webify
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from pygments.formatters.html import webify
-import pandas as pd
 import time
+import pandas as pd
 import re
 
-# Khởi tạo DataFrame rỗng
-d = pd.DataFrame({'name': [], 'birth': [], 'death': [], 'nationality': []})
+# Tao dataframe rong
+d = pd.DataFrame({'name': [], 'birth': [], 'death': [], 'nationality':[]})
 
-#Khởi tạo webdriver 
+# Khoi tao webdriver
 driver = webdriver.Chrome()
 
-#Mở trang
+# Mo trang
 url = "https://en.wikipedia.org/wiki/Edvard_Munch"
 driver.get(url)
 
-#Đợi 2 giây
+# Doi 2 giay
 time.sleep(2)
 
-
-
+# Lay ten hoa si
 try:
-    # Mở trang
-    url = "https://en.wikipedia.org/wiki/Edvard_Munch"
-    driver.get(url)
-
-    # Chờ infobox của Wikipedia xuất hiện
-    wait = WebDriverWait(driver, 10)
-    infobox = wait.until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, "table.infobox"))
-    )
-
-    # Lấy tên từ tiêu đề infobox (nếu có)
-    try:
-        name_el = infobox.find_element(By.CSS_SELECTOR, "caption, .infobox-title")
-        name = name_el.text.strip()
-    except:
-        # Fallback: lấy từ tiêu đề trang
-        name = driver.find_element(By.ID, "firstHeading").text.strip()
-
-    # Duyệt các hàng trong infobox để tìm birth, death, nationality
+    name = driver.find_element(By.TAG_NAME, "h1").text
+except:
+    name = ""
+# Lay ngay sinh
+try:
+    birth_element = driver.find_element(By.XPATH, "//th[text()='Born']/following-sibling::td")
+    birth = birth_element.text
+    birth = re.findall(r'[0-9]{1,2}\s+[A-Za-z]+\s+[0-9]{4}', birth)[0]   
+except:
     birth = ""
+# Lay ngay mat
+try:
+    death_element = driver.find_element(By.XPATH, "//th[text()='Died']/following-sibling::td")
+    death = death_element.text
+    death = re.findall(r'[0-9]{1,2}\s+[A-Za-z]+\s+[0-9]{4}', death)[0]
+except:
     death = ""
+# Lay quoc tich
+try:
+    nationality_element = driver.find_element(By.XPATH, "//th[text()='Nationality']/following-sibling::td")
+    nationality = nationality_element.text
+except:
     nationality = ""
 
-    rows = infobox.find_elements(By.CSS_SELECTOR, "tr")
-    for row in rows:
-        try:
-            th = row.find_element(By.CSS_SELECTOR, "th")
-            label = th.text.strip().lower()
-        except:
-            label = ""
+# Tao dictionary thong tin cua hoa si
+painter = {'name': name, 'birth': birth, 'death': death, 'nationality':nationality}
 
-        try:
-            td = row.find_element(By.CSS_SELECTOR, "td")
-            value = td.text.strip()
-        except:
-            value = ""
+# Chuyen doi dictionary thanh DataFrame
+painter_df = pd.DataFrame([painter])
 
-        if not label or not value:
-            continue
+# Them thong tin vao DF chinh
+d = pd.concat([d, painter_df], ignore_index=True)
 
-        # Chuẩn hóa nhãn để bắt các biến thể
-        if "born" in label or "birth" in label:
-            birth = value
-        elif "died" in label or "death" in label:
-            death = value
-        elif "nationality" in label or "citizenship" in label:
-            nationality = value
+# In ra DF
+print(d)
 
-    # Thêm vào DataFrame
-    d.loc[len(d)] = {
-        "name": name,
-        "birth": birth,
-        "death": death,
-        "nationality": nationality,
-    }
-
-    # In kết quả
-    print(d)
-
-finally:
-    driver.quit()
+# Dong web driver
+driver.quit()

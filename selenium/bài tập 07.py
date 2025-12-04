@@ -1,97 +1,137 @@
-import requests
-from bs4 import BeautifulSoup
-import pandas as pd
-from datetime import datetime
+from selenium import webdriver
+from selenium.webdriver.common.by import By
 import time
+import pandas as pd
+import re
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
 
-BASE = "https://en.wikipedia.org"
-LIST_URL = BASE + "/wiki/List_of_universities_in_Vietnam"
+# ============================
+# DataFrame
+# ============================
+columns = [
+    "Tên trường", 
+    "Tên viết tắt",
+    "Loại trường",        # Công lập / Tư thục / ...
+    "Năm thành lập",
+    "Hiệu trưởng",
+    "Mã trường",
+    "Website",
+    "Địa chỉ"
+]
 
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/142.0.0.0 Safari/537.36"
-}
+df = pd.DataFrame(columns=columns)
 
-def parse_date(text):
-    """Chuẩn hóa ngày thành yyyy-mm-dd nếu có thể."""
-    for fmt in ("%Y-%m-%d", "%Y"):
+# ============================
+# Chrome
+# ============================
+driver = webdriver.Chrome()
+url = "https://vi.wikipedia.org/wiki/Danh_s%C3%A1ch_tr%C6%B0%E1%BB%9Dng_%C4%91%E1%BA%A1i_h%E1%BB%8Dc,_h%E1%BB%8Dc_vi%E1%BB%87n_v%C3%A0_cao_%C4%91%E1%BA%B3ng_t%E1%BA%A1i_Vi%E1%BB%87t_Nam"
+driver.get(url)
+time.sleep(3)
+
+# ============================
+# Lấy link các trường
+# ============================
+a_tags = driver.find_elements(By.TAG_NAME, "a")
+school_links = []
+
+for a in a_tags:
+    try:
+        href = a.get_attribute("href")
+        text = a.text.strip()
+        if href and "/wiki/" in href and text and "Đại học" in text:
+            school_links.append(href)
+    except:
+        continue
+
+school_links = list(dict.fromkeys(school_links))
+print("Tìm thấy", len(school_links), "link trường.")
+
+# ============================
+# Safe Text
+# ============================
+def safe_text(by, value):
+    try:
+        return driver.find_element(by, value).text.strip()
+    except:
+        return ""
+
+# ============================
+# Lấy từ infobox
+# ============================
+def get_info(alias_list):
+    for alias in alias_list:
         try:
-            return datetime.strptime(text, fmt).date().isoformat()
+            return driver.find_element(
+                By.XPATH, f"//th[contains(text(), '{alias}')]/following-sibling::td"
+            ).text.strip()
         except:
             continue
-    return text
+    return ""
 
-def clean_text(text):
-    return text.strip().replace("\n", " | ")
+# ============================
+# Xác định loại trường (Công lập / Tư thục)
+# ============================
+def detect_school_type(page_text):
+    text = page_text.lower()
 
-# Bước 1: Lấy tất cả link trường từ tất cả bảng wikitable
-resp = requests.get(LIST_URL, headers=headers)
-resp.raise_for_status()
-soup = BeautifulSoup(resp.content, "html.parser")
+    pub_kw = ["công lập", "public", "nhà nước", "quốc gia", "trọng điểm"]
+    pri_kw = ["tư thục", "private", "ngoài công lập", "tư lập", "dân lập"]
 
-all_tables = soup.find_all("table", {"class": "wikitable"})
-links = set()
-for table in all_tables:
-    rows = table.find_all("tr")
-    for row in rows[1:]:
-        cols = row.find_all("td")
-        if len(cols) < 2:
-            continue
-        a = cols[1].find("a")
-        if a and a.get("href", "").startswith("/wiki/"):
-            links.add(BASE + a["href"])
+    for k in pub_kw:
+        if k in text:
+            return "Công lập"
 
-links = list(links)
-print("Tổng số trường tìm được:", len(links))
+    for k in pri_kw:
+        if k in text:
+            return "Tư thục"
 
-# Bước 2: Crawl từng trường chi tiết
-df = pd.DataFrame(columns=[
-    "Name", "Wiki_URL", "Established", "Type",
-    "Rector/President", "City/Location", "Website", "Other Info"
-])
+    return "Không rõ"
 
-for idx, link in enumerate(links):
-    print(f"[{idx+1}/{len(links)}] Crawling {link}")
-    r = requests.get(link, headers=headers)
-    r.raise_for_status()
-    s = BeautifulSoup(r.content, "html.parser")
-    name = s.find("h1").text.strip() if s.find("h1") else ""
-    
-    info = {}
-    infobox = s.find("table", {"class": "infobox"})
-    if infobox:
-        for tr in infobox.find_all("tr"):
-            th = tr.find("th")
-            td = tr.find("td")
-            if th and td:
-                key = clean_text(th.text)
-                val = clean_text(td.text)
-                # Nếu có link website
-                a_tag = td.find("a", href=True)
-                if a_tag and a_tag['href'].startswith("http"):
-                    val = a_tag['href']
-                info[key] = val
-    
-    established = parse_date(info.get("Established", ""))
-    school_type = info.get("Type", "")
-    leader = info.get("Rector", "") or info.get("President", "")
-    city = info.get("City", "") or info.get("Location", "")
-    website = info.get("Website", "")
-    other = {k: v for k, v in info.items() if k not in ["Established", "Type", "Rector", "President", "City", "Location", "Website"]}
+# ============================
+# Bắt đầu crawl
+# ============================
+for idx, link in enumerate(school_links):
+    print(f"{idx+1}/{len(school_links)} → {link}")
+    driver.get(link)
+    time.sleep(1.3)
 
-    # Bỏ các hàng trống hoàn toàn
-    if any([name, link, established, school_type, leader, city, website, other]):
-        df.loc[len(df)] = [name, link, established, school_type, leader, city, website, str(other)]
-    
-    time.sleep(1.5)
-    
-# Lọc chỉ giữ trường ở Việt Nam
-df = df[df["City/Location"].str.contains("Vietnam|Hà Nội|Hồ Chí Minh|Đà Nẵng|Huế|...") | df["Wiki_URL"].str.contains("/Vietnam") ]
+    name = safe_text(By.TAG_NAME, "h1")
 
-# Loại bỏ hàng trống (nếu có)
-df.dropna(how='all', inplace=True)
+    short_name = get_info(["Tên viết tắt", "Viết tắt"])
 
-# Xuất ra file Excel duy nhất
-df.to_excel("vietnam_universities_all.xlsx", index=False)
-print("Done — dữ liệu đã lưu ra vietnam_universities_all.xlsx")
+    # Lấy mô tả đầu trang để xác định loại trường
+    try:
+        intro_text = driver.find_element(By.XPATH, "//p[1]").text
+    except:
+        intro_text = ""
+
+    # Lấy full text trang để tăng độ chính xác
+    try:
+        full_text = driver.find_element(By.TAG_NAME, "body").text
+    except:
+        full_text = intro_text
+
+    school_type = detect_school_type(full_text)
+
+    # Năm thành lập
+    established = get_info(["Năm thành lập", "Thành lập"])
+    year_match = re.search(r"(18|19|20)\d{2}", established)
+    established = year_match.group(0) if year_match else established
+
+    president = get_info(["Hiệu trưởng", "Giám đốc"])
+    code = get_info(["Mã trường", "Mã tuyển sinh"])
+    website = get_info(["Website"])
+
+    address = get_info(["Địa chỉ", "Trụ sở", "Cơ sở", "Đặt tại"])
+
+    df.loc[len(df)] = [
+        name, short_name, school_type,
+        established, president, code,
+        website, address
+    ]
+
+driver.quit()
+
+df.to_excel("vietnam_universities_clean.xlsx", index=False)
